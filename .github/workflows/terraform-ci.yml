@@ -44,14 +44,53 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
-      # ✅ 수정된 부분: 클러스터 이름이 이미 Terraform에서 정의되어 있으므로 직접 지정
-      - name: Configure kubeconfig for EKS
+      - name: Terraform Init
+        working-directory: ./terraform
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
         run: |
-          aws eks update-kubeconfig --region ap-northeast-2 --name $(terraform output -raw eks_cluster_name)
-          echo "✅ kubeconfig created at ~/.kube/config"
+          mkdir -p ~/.terraform.d/plugin-cache
+          terraform init -input=false
 
-      - name: Check Cluster Connection
-        run: kubectl get nodes
+      - name: Terraform Validate
+        working-directory: ./terraform
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        working-directory: ./terraform
+        run: terraform plan -no-color -input=false -var="deploy_k8s=false"
+
+
+  apply:
+    name: Terraform Apply (Infra Only)
+    runs-on: ubuntu-latest
+    needs: [plan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore Terraform cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            terraform/.terraform
+          key: ${{ runner.os }}-${{ github.sha }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tf-
 
       - name: Terraform Init
         working-directory: ./terraform
@@ -61,45 +100,96 @@ jobs:
           mkdir -p ~/.terraform.d/plugin-cache
           terraform init -input=false
 
-      - name: Terraform Plan
+      - name: Terraform Apply (Infra Only)
         working-directory: ./terraform
-        run: |
-          terraform plan -input=false -var "kubeconfig_path=$HOME/.kube/config"
+        run: terraform apply -auto-approve -input=false -var="deploy_k8s=false"
 
-  apply:
-    name: Terraform Apply
+
+  apply-k8s:
+    name: Terraform Apply (K8s/Helm)
     runs-on: ubuntu-latest
-    needs: plan
-    if: github.ref == 'refs/heads/main'
+    needs: [apply]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
-
+        
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
+          
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Restore Terraform cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            terraform/.terraform
+          key: ${{ runner.os }}-${{ github.sha }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tf-
+            
+      # 🌟 Kubeconfig 파일을 생성할 경로를 환경 변수에 설정
+      - name: Set Kubeconfig Path Environment Variable
+        run: echo "KUBECONFIG_PATH=/home/runner/.kube/config" >> $GITHUB_ENV
 
-      - name: Install kubectl
+      # 🌟 kubectl과 helm 설치
+      - name: Install kubectl and helm
         run: |
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
+          curl -LO https://get.helm.sh/helm-v3.12.3-linux-amd64.tar.gz
+          tar xvf helm-v3.12.3-linux-amd64.tar.gz
+          sudo mv linux-amd64/helm /usr/local/bin/
 
-      # ✅ 동일하게 수정된 부분
-      - name: Configure kubeconfig for EKS
-        run: |
-          aws eks update-kubeconfig --region ap-northeast-2 --name $(terraform output -raw eks_cluster_name)
-          echo "✅ kubeconfig created at ~/.kube/config"
-
-      - name: Terraform Apply
+      # 🌟 EKS 클러스터가 활성화될 때까지 기다리고 Kubeconfig 업데이트 (파일 존재 여부 확인 추가)
+      - name: Wait for EKS cluster & Update kubeconfig (with debug check)
         working-directory: ./terraform
         run: |
-          terraform apply -auto-approve -var "kubeconfig_path=$HOME/.kube/config"
+          EKS_CLUSTER_NAME="eks-project-cluster"
+          
+          echo "Waiting for EKS cluster ($EKS_CLUSTER_NAME) to be ACTIVE..."
+          aws eks wait cluster-active --name $EKS_CLUSTER_NAME --region ap-northeast-2
+          
+          echo "Updating Kubeconfig... path: ${{ env.KUBECONFIG_PATH }}"
+          # KUBECONFIG_PATH를 사용해 config 파일 생성
+          mkdir -p $(dirname ${{ env.KUBECONFIG_PATH }})
+          aws eks update-kubeconfig --region ap-northeast-2 --name $EKS_CLUSTER_NAME --kubeconfig ${{ env.KUBECONFIG_PATH }} --alias $EKS_CLUSTER_NAME
+
+          # 생성된 파일 확인 및 내용 출력 (🚨 디버깅을 위해 추가)
+          echo "--- Kubeconfig File Check ---"
+          if [ -f "${{ env.KUBECONFIG_PATH }}" ]; then
+            echo "Kubeconfig file exists. First 10 lines:"
+            head -n 10 ${{ env.KUBECONFIG_PATH }}
+          else
+            echo "🚨 Kubeconfig file NOT found at ${{ env.KUBECONFIG_PATH }}. Exiting."
+            exit 1 
+          fi
+          echo "-----------------------------"
+      
+      # 🌟 CRITICAL FIX: Terraform Init -reconfigure 강제 실행 (🌟 이 부분이 핵심 수정)
+      - name: Terraform Init (Reconfigure Providers)
+        working-directory: ./terraform
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: |
+          # 캐시를 사용하더라도 Provider 설정을 강제로 다시 로드합니다.
+          terraform init -input=false -reconfigure
+
+      # 🌟 Kubeconfig 경로를 Terraform 변수로 전달
+      - name: Terraform Apply (k8s/Helm)
+        working-directory: ./terraform
+        env:
+          # 환경 변수 KUBECONFIG는 kubectl/helm 명령에 유용
+          KUBECONFIG: ${{ env.KUBECONFIG_PATH }}
+        run: |
+          # 수정: providers.tf가 Kubeconfig 경로를 사용하도록 -var로 전달
+          terraform apply -auto-approve -input=false -var="deploy_k8s=true" -var="kubeconfig_path=${{ env.KUBECONFIG_PATH }}"
