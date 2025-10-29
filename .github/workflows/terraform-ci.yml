@@ -3,21 +3,15 @@ name: 'Terraform CI/CD' # 이름 변경 (CI에서 CI/CD로)
 on:
   push:
     branches:
-      - main  # main 브랜치에 푸시할 때마다 실행
+      - main  # main 브랜치에 푸시할 때마다 실행 (apply는 main에서만)
   pull_request:
     branches:
-      - main  # main 브랜치로 Pull Request가 열릴 때 실행
+      - main  # main 브랜치로 Pull Request가 열릴 때 실행 (plan/validate)
 
 jobs:
-  terraform_validate_plan_apply: # Job 이름 변경
-    name: 'Terraform Validate, Plan & Apply'
+  plan:
+    name: 'Terraform Validate & Plan'
     runs-on: ubuntu-latest
-
-    env:
-      # AWS 인증 정보 환경 변수 설정
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ap-northeast-2 # 사용하는 AWS 리전에 맞게 수정하세요!
 
     steps:
       - name: Checkout Code
@@ -28,32 +22,46 @@ jobs:
         with:
           cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Terraform 명령어를 실행할 디렉토리로 이동
-      - name: Change Directory to Terraform
-        run: cd terraform
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
 
       - name: Terraform Init
-        run: terraform init
         working-directory: ./terraform
+        run: terraform init -input=false
 
       - name: Terraform Validate
+        working-directory: ./terraform
         run: terraform validate
-        working-directory: ./terraform  # 코드 유효성 검사 실행
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color # Plan 결과를 저장하지 않고 출력만 합니다.
         working-directory: ./terraform
-        continue-on-error: true
+        # Plan을 파일로 저장하고 plan.txt로 변환하여 step output으로 노출
+        run: |
+          set -e
+          terraform plan -no-color -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+          # GITHUB_OUTPUT을 사용해 멀티라인 출력을 step output으로 설정
+          echo "plan_output<<EOF" >> $GITHUB_OUTPUT
+          cat plan.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/plan.txt
 
       - name: Plan Output (Comment on PR)
-        # Plan이 성공했고 Pull Request 이벤트일 때만 실행 (404 오류 방지)
-        if: steps.plan.outcome == 'success' && github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.plan.outputs.plan_output != ''
         uses: actions/github-script@v6
         with:
           script: |
-            // Plan 결과를 Pull Request 코멘트로 남김
-            const output = `#### Terraform Plan 🔎\n\n\`\`\`terraform\n${process.env.PLAN_OUTPUT}\n\`\`\``
+            const output = `#### Terraform Plan 🔎\n\n\`\`\`terraform\n${process.env.PLAN_OUTPUT}\n\`\`\`\n\n(Plan file uploaded as artifact: \'terraform-plan\')`
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -61,19 +69,41 @@ jobs:
               body: output
             })
         env:
-          PLAN_OUTPUT: ${{ steps.plan.outputs.stdout }}
-      # 🌟 1. AWS CLI 설치 (Kubernetes Provider와 Helm Provider의 EKS 인증에 필수) 🌟
-      - name: Setup AWS CLI
-        uses: aws-actions/aws-cli@v3
-        
-      # 🌟 2. Kubeconfig 파일 생성 및 EKS 인증 토큰 갱신 🌟
-      # 이 단계가 없으면 Kubernetes/Helm Provider는 클러스터에 연결할 수 없습니다.
+          PLAN_OUTPUT: ${{ steps.plan.outputs.plan_output }}
+
+  apply:
+    name: 'Terraform Apply (only main push)'
+    runs-on: ubuntu-latest
+    needs: plan
+    # Apply는 오직 main 브랜치에 직접 푸시될 때만 실행
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init -input=false
+
       - name: Update kubeconfig and EKS Auth Token
+        # EKS 인증은 필요 시에만 실행됩니다. 권한이 없는 경우 이 스텝은 실패합니다.
+        working-directory: ./terraform
         run: aws eks update-kubeconfig --region ap-northeast-2 --name eks-project-cluster
 
-      - name: Terraform Apply # 🚀 새로 추가된 CD(배포) 단계
-        # 모든 CI 단계 (Validate, Plan)가 성공했을 때만 Apply 실행
-        if: success()
-        run: terraform apply -auto-approve 
+      - name: Terraform Apply
         working-directory: ./terraform
+        run: terraform apply -auto-approve
         
