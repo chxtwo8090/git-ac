@@ -62,6 +62,14 @@ jobs:
             })
         env:
           PLAN_OUTPUT: ${{ steps.plan.outputs.stdout }}
+      # 🌟 1. AWS CLI 설치 (Kubernetes Provider와 Helm Provider의 EKS 인증에 필수) 🌟
+      - name: Setup AWS CLI
+        uses: aws-actions/setup-aws-cli@v3
+        
+      # 🌟 2. Kubeconfig 파일 생성 및 EKS 인증 토큰 갱신 🌟
+      # 이 단계가 없으면 Kubernetes/Helm Provider는 클러스터에 연결할 수 없습니다.
+      - name: Update kubeconfig and EKS Auth Token
+        run: aws eks update-kubeconfig --region ap-northeast-2 --name eks-project-cluster
 
       - name: Terraform Apply # 🚀 새로 추가된 CD(배포) 단계
         # 모든 CI 단계 (Validate, Plan)가 성공했을 때만 Apply 실행
