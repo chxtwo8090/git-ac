@@ -1,9 +1,8 @@
-# providers.tf 파일 (Kubeconfig 경로를 사용하도록 강제 수정)
+# providers.tf 파일 (최종 수정 코드)
 
 # ----------------------------------------------------
-# EKS 클러스터 인증을 위한 Data Source (CI에서 사용하지 않으므로 주석 처리)
+# EKS 클러스터 인증을 위한 Data Source (유지)
 # ----------------------------------------------------
-/*
 data "aws_eks_cluster_auth" "eks_auth" {
    name = var.eks_cluster_name
    depends_on = [
@@ -17,25 +16,22 @@ data "aws_eks_cluster" "eks_cluster" {
     aws_eks_cluster.eks_cluster
   ]
 }
-*/
 
 
 # ----------------------------------------------------
-# 1. Kubernetes Provider 설정 (✅ Kubeconfig 파일 경로 사용)
-# ----------------------------------------------------\
+# 1. Kubernetes Provider 설정 (Kubeconfig 파일 경로 사용)
+# ----------------------------------------------------
 provider "kubernetes" {
-  # ❌ Data Source를 통한 인증 방식 대신 Kubeconfig 파일 경로를 사용합니다.
-  # host                   = data.aws_eks_cluster.eks_cluster.endpoint
-  # cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks_cluster.certificate_authority[0].data)
-  # token                  = data.aws_eks_cluster_auth.eks_auth.token
-  
-  # ✅ CI 스크립트에서 생성한 Kubeconfig 파일 경로를 변수로 받아 사용합니다.
+  # CI 스크립트에서 생성한 Kubeconfig 파일 경로를 변수로 받아 사용합니다.
   config_path = var.kubeconfig_path
 }
 
-# ----------------------------------------------------\
-# 2. Helm Provider 설정 (Kubernetes Provider 설정을 상속 받음)
-# ----------------------------------------------------\
+# ----------------------------------------------------
+# 2. Helm Provider 설정 (Kubeconfig 파일 경로 명시) ⬅️ CRITICAL FIX
+# ----------------------------------------------------
 provider "helm" {
-  # 빈 블록을 유지하여 Kubernetes Provider의 설정을 상속받도록 합니다.
+  # 💡 수정: Helm Provider가 Kubeconfig 파일을 찾도록 명시적으로 경로 지정
+  kubernetes {
+    config_path = var.kubeconfig_path
+  }
 }
