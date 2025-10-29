@@ -1,0 +1,26 @@
+name: 'AWS Cleanup (manual)'
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  cleanup:
+    name: Manual AWS Cleanup (destructive)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Run cleanup script (non-interactive)
+        run: |
+          echo "Running AWS cleanup script in non-interactive mode (-AutoConfirm)."
+          pwsh ./terraform/scripts/aws_cleanup.ps1 -AutoConfirm
+        shell: pwsh
