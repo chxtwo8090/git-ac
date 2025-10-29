@@ -4,15 +4,16 @@
 # EKS 클러스터 인증을 위한 Data Source
 # ----------------------------------------------------
 data "aws_eks_cluster_auth" "eks_auth" {
-  name = "eks-project-cluster"
+  # 클러스터 이름은 변수로 받아 사용합니다 (eks_cluster.tf의 var.eks_cluster_name)
+  name = var.eks_cluster_name
   # Data Source가 클러스터 생성을 기다리도록 의존성 추가
   depends_on = [
     aws_eks_cluster.eks_cluster
   ]
 }
 
-data "aws_eks_cluster" "eks_cluster_data" {
-  name = "eks-project-cluster"
+data "aws_eks_cluster" "eks_cluster" {
+  name = var.eks_cluster_name
   # Data Source가 클러스터 생성을 기다리도록 의존성 추가
   depends_on = [
     aws_eks_cluster.eks_cluster
@@ -23,8 +24,8 @@ data "aws_eks_cluster" "eks_cluster_data" {
 # 1. Kubernetes Provider 설정 (EKS 인증 정보 명시)
 # ----------------------------------------------------
 provider "kubernetes" {
-  host                   = data.aws_eks_cluster.eks_cluster_data.endpoint
-  cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks_cluster_data.certificate_authority[0].data)
+  host                   = data.aws_eks_cluster.eks_cluster.endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks_cluster.certificate_authority[0].data)
   token                  = data.aws_eks_cluster_auth.eks_auth.token
 }
 
