@@ -38,13 +38,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-tf-
 
-      - name: Terraform Init
-        working-directory: ./terraform
-        env:
-          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+      - name: Install kubectl
         run: |
-          mkdir -p ~/.terraform.d/plugin-cache
-          terraform init -input=false
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Install helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
       - name: Terraform Validate
         working-directory: ./terraform
@@ -154,13 +156,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-tf-
 
-      - name: Terraform Init
+      - name: Wait for EKS cluster to become ACTIVE
+        working-directory: ./terraform
+        run: |
+          echo "Waiting for EKS cluster to be ACTIVE..."
+          aws eks wait cluster-active --name eks-project-cluster --region ap-northeast-2
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --region ap-northeast-2 --name eks-project-cluster
+
+      - name: Terraform Init (reconfigure)
         working-directory: ./terraform
         env:
           TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
         run: |
           mkdir -p ~/.terraform.d/plugin-cache
-          terraform init -input=false
+          terraform init -input=false -reconfigure
 
       - name: Terraform Apply (infrastructure only)
         working-directory: ./terraform
