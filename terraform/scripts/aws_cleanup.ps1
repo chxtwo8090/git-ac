@@ -15,6 +15,10 @@ DynamoDB 테이블, 보안 그룹)를 삭제합니다. 실행 전 반드시 AWS 
 
 #>
 
+param(
+    [switch]$AutoConfirm
+)
+
 Set-StrictMode -Version Latest
 
 # 한글(및 유니코드) 출력 깨짐 방지 시도
@@ -28,6 +32,7 @@ if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
 }
 
 function Confirm([string]$message) {
+    if ($AutoConfirm) { return $true }
     $ans = Read-Host "$message [y/N]"
     return $ans -eq 'y' -or $ans -eq 'Y'
 }

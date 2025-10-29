@@ -29,6 +29,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
 
+      - name: Optional destructive cleanup (USE WITH CAUTION)
+        if: ${{ secrets.CLEANUP_ALL == 'true' }}
+        run: |
+          echo "Running destructive cleanup script in non-interactive mode (-AutoConfirm)."
+          pwsh ./terraform/scripts/aws_cleanup.ps1 -AutoConfirm
+        shell: pwsh
+
       - name: Restore Terraform cache
         uses: actions/cache@v4
         with:
