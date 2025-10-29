@@ -29,6 +29,7 @@ resource "helm_release" "cluster_autoscaler" {
 
     depends_on = [
     aws_eks_cluster.eks_cluster,
-    data.aws_eks_cluster_auth.eks_auth,
+      data.aws_eks_cluster_auth.eks_auth,
+      aws_eks_node_group.eks_worker_group,
   ]
 }

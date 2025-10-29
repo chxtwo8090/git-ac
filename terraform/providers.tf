@@ -33,5 +33,13 @@ provider "kubernetes" {
 # 2. Helm Provider 설정 (빈 블록으로 복구)
 # ----------------------------------------------------
 provider "helm" {
-  # 빈 블록으로 유지하여 Kubernetes Provider 설정을 상속하도록 시도합니다.
+  # Configure Helm provider to use the same EKS connection settings as the
+  # Kubernetes provider so Helm can connect to the cluster without relying on
+  # a local kubeconfig file. This uses the data sources populated from the
+  # created aws_eks_cluster and aws_eks_cluster_auth resources.
+  kubernetes {
+    host                   = data.aws_eks_cluster.eks_cluster.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks_cluster.certificate_authority[0].data)
+    token                  = data.aws_eks_cluster_auth.eks_auth.token
+  }
 }
