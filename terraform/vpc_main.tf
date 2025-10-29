@@ -1,6 +1,15 @@
+# vpc_main.tf 파일 (수정됨)
+
 // provider and VPC/subnet resources copied from vpc_main.tt
-provider "aws" {
+/*
+provider "aws" { # ❌ providers.tf 파일에 이미 정의되어 있으므로 이 중복 블록은 제거합니다.
   region = "ap-northeast-2"
+}
+*/
+
+# 데이터 소스: 현재 리전의 가용 영역 목록을 가져옵니다.
+data "aws_availability_zones" "available" {
+  state = "available"
 }
 
 resource "aws_vpc" "eks_vpc" {
@@ -75,13 +84,20 @@ resource "aws_route_table" "public" {
   }
 }
 
+resource "aws_route_table_association" "public" {
+  count          = 2
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
+}
+
 resource "aws_route_table" "private" {
   count  = 2
   vpc_id = aws_vpc.eks_vpc.id
 
   route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.eks_nat.id
+    cidr_block = "0.0.0.0/0"
+    # 첫 번째 서브넷에 연결된 NAT Gateway를 사용합니다.
+    nat_gateway_id = aws_nat_gateway.eks_nat.id 
   }
 
   tags = {
@@ -89,18 +105,8 @@ resource "aws_route_table" "private" {
   }
 }
 
-resource "aws_route_table_association" "public" {
-  count          = 2
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
-}
-
 resource "aws_route_table_association" "private" {
   count          = 2
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private[count.index].id
-}
-
-data "aws_availability_zones" "available" {
-  state = "available"
 }

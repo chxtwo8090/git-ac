@@ -1,4 +1,4 @@
-name: 'Terraform CI/CD' # 이름 변경 (CI에서 CI/CD로)
+name: 'Terraform CI/CD' 
 
 on:
   push:
@@ -28,15 +28,20 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
 
+      # 캐시 경로 수정: 불필요한 ~/.terraform.d/plugin-cache 제거 및 키에 SHA를 추가하여 안정성 확보
       - name: Restore Terraform cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.terraform.d/plugin-cache
-            terraform/.terraform
-          key: ${{ runner.os }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          path: terraform/.terraform 
+          key: ${{ runner.os }}-${{ github.sha }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
           restore-keys: |
             ${{ runner.os }}-tf-
+            
+      # 🌟 CRITICAL FIX: Terraform Init 단계 명시적 추가 (Providers 다운로드)
+      - name: Terraform Init (Download Providers)
+        id: init
+        working-directory: ./terraform
+        run: terraform init -input=false
 
       - name: Install kubectl
         run: |
@@ -46,166 +51,57 @@ jobs:
 
       - name: Install helm
         run: |
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          curl -LO https://get.helm.sh/helm-v3.12.3-linux-amd64.tar.gz
+          tar xvf helm-v3.12.3-linux-amd64.tar.gz
+          sudo mv linux-amd64/helm /usr/local/bin/
 
       - name: Terraform Validate
+        id: validate
         working-directory: ./terraform
-        run: terraform validate
+        run: terraform validate -no-color
 
       - name: Terraform Plan
         id: plan
+        if: github.event_name == 'pull_request'
         working-directory: ./terraform
-        env:
-          # set to 'true' to run a faster plan without refresh (use carefully)
-          FAST_PLAN: 'false'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          # run non-interactively and explicitly load tfvars to avoid prompting
-          # FAST_PLAN=true will add -refresh=false to speed up plan (use carefully)
-          EXTRA=""
-          if [ "${FAST_PLAN}" = "true" ]; then
-            EXTRA="-refresh=false"
-          fi
-          mkdir -p ./terraform
-          # run terraform and capture both stdout and stderr to a file while preserving exit code
-          terraform plan $EXTRA -input=false -no-color -out=tfplan -var-file=terraform.tfvars 2>&1 | tee ./terraform/plan.txt
-          echo ${PIPESTATUS[0]} > ./terraform/plan_exit_code || true
-          # if plan produced a binary plan, export a human-readable version (ignore errors)
-          terraform show -no-color tfplan > ./terraform/plan.txt || true
-          # expose plan output as a step output (first 64kB max)
-          echo "plan_output<<EOF" >> $GITHUB_OUTPUT || true
-          head -c 65000 ./terraform/plan.txt >> $GITHUB_OUTPUT || true
-          echo "EOF" >> $GITHUB_OUTPUT || true
+        run: terraform plan -no-color -input=false
 
-      - name: Upload plan artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: terraform/plan.txt
-
-      - name: Check plan result
-        if: always()
-        working-directory: ./terraform
-        run: |
-          set -e
-          EXIT_CODE=0
-          if [ -f ./plan_exit_code ]; then
-            EXIT_CODE=$(cat ./plan_exit_code || echo 1)
-          else
-            # fall back to scanning for 'Error:' in the plan output
-            if grep -q "^Error: " ./plan.txt 2>/dev/null; then
-              EXIT_CODE=1
-            fi
-          fi
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "Terraform plan failed (exit code: $EXIT_CODE). Showing last 200 lines of plan output for debugging:"
-            tail -n 200 ./plan.txt || true
-            exit $EXIT_CODE
-          else
-            echo "Terraform plan succeeded (exit code: 0)."
-          fi
-
-      - name: Plan Output (Comment on PR)
-        if: github.event_name == 'pull_request' && steps.plan.outputs.plan_output != ''
+      - name: Update Pull Request
         uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
         with:
           script: |
-            const output = `#### Terraform Plan 🔎\n\n\`\`\`terraform\n${process.env.PLAN_OUTPUT}\n\`\`\`\n\n(Plan file uploaded as artifact: 'terraform-plan')`
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body: 'Terraform Plan completed. See the full plan in the action output.'
             })
-        env:
-          PLAN_OUTPUT: ${{ steps.plan.outputs.plan_output }}
 
   apply:
-    name: Terraform Apply (only main push)
+    name: Terraform Apply (Infra Only)
     runs-on: ubuntu-latest
-    needs: plan
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    # Note: avoid referencing secrets in top-level job expressions to satisfy workflow validation.
-
+    needs: [plan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
-
+      
       - name: Restore Terraform cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.terraform.d/plugin-cache
-            terraform/.terraform
-          key: ${{ runner.os }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
-          restore-keys: |
-            ${{ runner.os }}-tf-
-
-      - name: Wait for EKS cluster to become ACTIVE
-        working-directory: ./terraform
-        run: |
-          echo "Waiting for EKS cluster to be ACTIVE..."
-          aws eks wait cluster-active --name eks-project-cluster --region ap-northeast-2
-
-      - name: Update kubeconfig for EKS
-        run: aws eks update-kubeconfig --region ap-northeast-2 --name eks-project-cluster
-
-      - name: Terraform Init (reconfigure)
-        working-directory: ./terraform
-        env:
-          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
-        run: |
-          mkdir -p ~/.terraform.d/plugin-cache
-          terraform init -input=false -reconfigure
-
-      - name: Terraform Apply (infrastructure only)
-        working-directory: ./terraform
-        run: terraform apply -input=false -auto-approve -var-file=terraform.tfvars -var="deploy_k8s=false"
-
-  apply-k8s:
-    name: Terraform Apply - Kubernetes (after infra)
-    runs-on: ubuntu-latest
-    needs: apply
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-northeast-2
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Restore Terraform cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.terraform.d/plugin-cache
-            terraform/.terraform
-          key: ${{ runner.os }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          path: terraform/.terraform
+          key: ${{ runner.os }}-${{ github.sha }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
           restore-keys: |
             ${{ runner.os }}-tf-
 
@@ -216,16 +112,59 @@ jobs:
         run: |
           mkdir -p ~/.terraform.d/plugin-cache
           terraform init -input=false
+      
+      # Apply 단계는 K8s 배포 변수(deploy_k8s)를 false로 설정하여 Infra만 배포합니다.
+      - name: Terraform Apply (Infra Only)
+        working-directory: ./terraform
+        run: terraform apply -auto-approve -input=false -var="deploy_k8s=false"
 
+  apply-k8s:
+    name: Terraform Apply (K8s/Helm)
+    runs-on: ubuntu-latest
+    needs: [apply]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Restore Terraform cache
+        uses: actions/cache@v4
+        with:
+          path: terraform/.terraform
+          key: ${{ runner.os }}-${{ github.sha }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tf-
+            
+      - name: Terraform Init
+        working-directory: ./terraform
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          terraform init -input=false
+
+      # EKS 클러스터가 생성될 때까지 대기
       - name: Wait for EKS cluster to become ACTIVE
         working-directory: ./terraform
         run: |
           echo "Waiting for EKS cluster to be ACTIVE..."
           aws eks wait cluster-active --name eks-project-cluster --region ap-northeast-2
 
+      # kubectl이 EKS 클러스터를 인식하도록 설정
       - name: Update kubeconfig for EKS
         run: aws eks update-kubeconfig --region ap-northeast-2 --name eks-project-cluster
 
+      # Apply 단계는 K8s 배포 변수(deploy_k8s)를 true로 설정하여 K8s 리소스를 배포합니다.
       - name: Terraform Apply (k8s/Helm)
         working-directory: ./terraform
-        run: terraform apply -input=false -auto-approve -var-file=terraform.tfvars -var="deploy_k8s=true"
+        run: terraform apply -auto-approve -input=false -var="deploy_k8s=true"

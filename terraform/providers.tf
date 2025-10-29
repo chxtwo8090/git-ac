@@ -1,4 +1,20 @@
-# providers.tf 파일 (최종적으로 수정된 코드)
+# providers.tf 파일 (수정됨)
+
+# ----------------------------------------------------
+# AWS Provider 설정 (기본 리전)
+# ----------------------------------------------------
+# terraform {
+#   required_providers {
+#     aws = {
+#       source  = "hashicorp/aws"
+#       version = "6.18.0"
+#     }
+#   }
+# }
+
+provider "aws" {
+  region = var.region
+}
 
 # ----------------------------------------------------
 # EKS 클러스터 인증을 위한 Data Source
@@ -30,8 +46,13 @@ provider "kubernetes" {
 }
 
 # ----------------------------------------------------
-# 2. Helm Provider 설정 (빈 블록으로 복구)
+# 2. Helm Provider 설정 (EKS 인증 정보 명시) 🌟 수정된 부분
 # ----------------------------------------------------
 provider "helm" {
-  # 빈 블록으로 유지하여 Kubernetes Provider 설정을 상속하도록 시도합니다.
+  # Kubernetes Provider와 동일한 인증 정보를 사용하여 EKS에 접속합니다.
+  kubernetes {
+    host                   = data.aws_eks_cluster.eks_cluster.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks_cluster.certificate_authority[0].data)
+    token                  = data.aws_eks_cluster_auth.eks_auth.token
+  }
 }
