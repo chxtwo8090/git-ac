@@ -27,11 +27,11 @@ provider "kubernetes" {
 }
 
 # ----------------------------------------------------
-# 2. Helm Provider 설정 (Kubeconfig 파일 경로 명시) ⬅️ CRITICAL FIX
+# 2. Helm Provider 설정 (HCL 구문 수정) ⬅️ CRITICAL FIX
 # ----------------------------------------------------
 provider "helm" {
-  # 💡 수정: Helm Provider가 Kubeconfig 파일을 찾도록 명시적으로 경로 지정
-  kubernetes {
+  # 💡 수정된 부분: 'kubernetes'를 블록({}) 대신 인자(attribute, =)로 정의
+  kubernetes = {
     config_path = var.kubeconfig_path
   }
 }
