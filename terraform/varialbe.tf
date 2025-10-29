@@ -22,3 +22,10 @@ variable "region" {
   type        = string
   default     = "ap-northeast-2" # 서울 리전 가정
 }
+
+# 컨트롤: Helm/Kubernetes 리소스 배포 여부 (CI에서 2단계로 분리할 때 사용)
+variable "deploy_k8s" {
+  description = "If false, skip creating Helm/Kubernetes resources. Used to split infra and k8s deploys in CI."
+  type        = bool
+  default     = true
+}

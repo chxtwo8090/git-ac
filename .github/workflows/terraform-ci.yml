@@ -78,6 +78,10 @@ jobs:
     # Apply는 오직 main 브랜치에 직접 푸시될 때만 실행
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -98,12 +102,47 @@ jobs:
         working-directory: ./terraform
         run: terraform init -input=false
 
-      - name: Update kubeconfig and EKS Auth Token
-        # EKS 인증은 필요 시에만 실행됩니다. 권한이 없는 경우 이 스텝은 실패합니다.
+      - name: Terraform Apply (infrastructure only)
         working-directory: ./terraform
+        # deploy_k8s=false로 k8s/Helm 리소스는 건너뜁니다.
+        run: terraform apply -auto-approve -var="deploy_k8s=false"
+
+  apply-k8s:
+    name: 'Terraform Apply - Kubernetes (after infra)'
+    runs-on: ubuntu-latest
+    needs: apply
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init -input=false
+
+      - name: Wait for EKS cluster to become ACTIVE
+        working-directory: ./terraform
+        run: |
+          echo "Waiting for EKS cluster to be ACTIVE..."
+          aws eks wait cluster-active --name eks-project-cluster --region ap-northeast-2
+
+      - name: Update kubeconfig for EKS
         run: aws eks update-kubeconfig --region ap-northeast-2 --name eks-project-cluster
 
-      - name: Terraform Apply
+      - name: Terraform Apply (k8s/Helm)
         working-directory: ./terraform
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve -var="deploy_k8s=true"
         

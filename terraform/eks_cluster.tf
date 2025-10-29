@@ -42,7 +42,7 @@ resource "aws_eks_cluster" "eks_cluster" {
 
   vpc_config {
     # 클러스터 엔드포인트는 프라이빗 서브넷에 연결
-    subnet_ids         = var.private_subnet_ids
+  subnet_ids         = aws_subnet.private[*].id
     # 엔드포인트 접근 설정 (Public, Private 모두 활성화)
     endpoint_public_access  = true
     endpoint_private_access = true
@@ -65,7 +65,7 @@ resource "aws_eks_node_group" "eks_worker_group" {
   cluster_name    = aws_eks_cluster.eks_cluster.name
   node_group_name = "t3-small-node-group"
   node_role_arn   = aws_iam_role.eks_node_role.arn
-  subnet_ids      = var.private_subnet_ids
+  subnet_ids      = aws_subnet.private[*].id
   instance_types  = ["t3.small"] # 요구사항 반영
   ami_type        = "AL2023_x86_64_STANDARD" # Amazon Linux 2 AMI 사용
 

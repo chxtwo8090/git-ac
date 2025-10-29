@@ -22,7 +22,7 @@ data "aws_ami" "amazon_linux" {
 resource "aws_instance" "eks_worker_instance" {
   ami           = data.aws_ami.amazon_linux.id
   instance_type = "t3.small"
-  subnet_id     = var.subnet_id
+  subnet_id     = aws_subnet.private[0].id
   key_name      = var.key_name
   
   # 보안 그룹 연결

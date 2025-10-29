@@ -1,14 +1,8 @@
 # alb_iam.tf 파일 (변경 없음, 최종 코드)
 
-# ----------------------------------------------------
-# 1. 기존 EKS 클러스터 정보를 참조합니다.
-# ----------------------------------------------------
- data "aws_eks_cluster" "eks_cluster" {
-  name = "eks-project-cluster"
-  depends_on = [
-    aws_eks_cluster.eks_cluster
-  ]
-}
+ # ----------------------------------------------------
+ # 1. EKS 클러스터(이 리포지토리에서 생성되는 리소스)를 참조합니다.
+ # ----------------------------------------------------
 
 # AWS 계정 ID를 가져오기 위한 데이터 소스 (필수)
 data "aws_caller_identity" "current" {}
@@ -20,8 +14,8 @@ data "aws_caller_identity" "current" {}
 
 # EKS 클러스터 Issuer URL 구성
 locals {
-  # OIDC Provider URL에서 'https://' 부분을 제거합니다.
-  oidc_issuer = trimsuffix(data.aws_eks_cluster.eks_cluster.identity[0].oidc[0].issuer, "https://")
+  # EKS 클러스터 리소스의 OIDC issuer를 사용합니다.
+  oidc_issuer = trimsuffix(aws_eks_cluster.eks_cluster.identity[0].oidc[0].issuer, "https://")
   # OIDC Provider ARN을 직접 구성합니다.
   oidc_arn    = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.oidc_issuer}"
 }

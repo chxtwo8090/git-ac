@@ -5,7 +5,7 @@
 resource "aws_security_group" "eks_node_sg" {
   name        = "eks-worker-node-sg"
   description = "eks-worker-node-group"
-  vpc_id      = var.vpc_id
+  vpc_id      = aws_vpc.eks_vpc.id
 
   # 인바운드 규칙: SSH 접속 허용
   ingress {

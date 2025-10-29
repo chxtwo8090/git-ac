@@ -54,8 +54,8 @@ resource "aws_iam_policy" "app_access_policy" {
 # EKS 클러스터 Issuer URL 및 ARN 구성
 locals {
   # OIDC Provider URL에서 'https://' 부분을 제거합니다.
-  # data.aws_eks_cluster.eks_cluster_app 대신 data.aws_eks_cluster.eks_cluster 사용
-  oidc_issuer_app = trimsuffix(data.aws_eks_cluster.eks_cluster.identity[0].oidc[0].issuer, "https://") 
+  # EKS 클러스터 리소스의 OIDC issuer를 사용
+  oidc_issuer_app = trimsuffix(aws_eks_cluster.eks_cluster.identity[0].oidc[0].issuer, "https://") 
   oidc_arn_app    = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.oidc_issuer_app}"
 }
 

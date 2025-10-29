@@ -12,6 +12,13 @@ data "aws_eks_cluster_auth" "eks_auth" {
   ]
 }
 
+data "aws_eks_cluster" "eks_cluster" {
+  name = aws_eks_cluster.eks_cluster.name
+  depends_on = [
+    aws_eks_cluster.eks_cluster
+  ]
+}
+
 
 # ----------------------------------------------------
 # 1. Kubernetes Provider 설정 (EKS 인증 정보 명시)
