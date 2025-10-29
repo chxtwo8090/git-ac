@@ -35,3 +35,8 @@ variable "deploy_k8s" {
   type        = bool
   default     = true
 }
+variable "kubeconfig_path" {
+  description = "Path to the Kubeconfig file (for CI/CD use, passed via -var)."
+  type        = string
+  default     = ""
+}
