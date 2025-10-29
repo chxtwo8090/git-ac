@@ -78,47 +78,7 @@ jobs:
               body: 'Terraform Plan completed. See the full plan in the action output.'
             })
 
-  apply:
-    name: Terraform Apply (Infra Only)
-    runs-on: ubuntu-latest
-    needs: [plan]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-northeast-2
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Restore Terraform cache
-        uses: actions/cache@v4
-        with:
-          path: terraform/.terraform
-          key: ${{ runner.os }}-${{ github.sha }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
-          restore-keys: |
-            ${{ runner.os }}-tf-
-
-      - name: Terraform Init
-        working-directory: ./terraform
-        env:
-          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
-        run: |
-          mkdir -p ~/.terraform.d/plugin-cache
-          terraform init -input=false
-      
-      # Apply 단계는 K8s 배포 변수(deploy_k8s)를 false로 설정하여 Infra만 배포합니다.
-      - name: Terraform Apply (Infra Only)
-        working-directory: ./terraform
-        run: terraform apply -auto-approve -input=false -var="deploy_k8s=false"
-
-  apply-k8s:
+   apply-k8s:
     name: Terraform Apply (K8s/Helm)
     runs-on: ubuntu-latest
     needs: [apply]
@@ -153,18 +113,34 @@ jobs:
           mkdir -p ~/.terraform.d/plugin-cache
           terraform init -input=false
 
-      # EKS 클러스터가 생성될 때까지 대기
-      - name: Wait for EKS cluster to become ACTIVE
+      # 🌟 CRITICAL FIX 1: kubectl과 helm 설치 (새로운 Runner 환경에 설치)
+      - name: Install kubectl and helm
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          # Helm v3.12.3 설치 (최신 버전 사용 권장)
+          curl -LO https://get.helm.sh/helm-v3.12.3-linux-amd64.tar.gz
+          tar xvf helm-v3.12.3-linux-amd64.tar.gz
+          sudo mv linux-amd64/helm /usr/local/bin/
+
+      # 🌟 CRITICAL FIX 2: EKS 클러스터가 활성화될 때까지 기다리고 Kubeconfig 업데이트
+      - name: Wait for EKS cluster & Update kubeconfig
         working-directory: ./terraform
         run: |
-          echo "Waiting for EKS cluster to be ACTIVE..."
-          aws eks wait cluster-active --name eks-project-cluster --region ap-northeast-2
+          EKS_CLUSTER_NAME="eks-project-cluster" # 클러스터 이름 변수와 일치
+          echo "Waiting for EKS cluster ($EKS_CLUSTER_NAME) to be ACTIVE..."
+          # 클러스터 활성화 대기 (필수)
+          aws eks wait cluster-active --name $EKS_CLUSTER_NAME --region ap-northeast-2
+          
+          echo "Updating Kubeconfig for Terraform/Helm access..."
+          # $HOME/.kube/config 파일에 인증 정보 생성
+          aws eks update-kubeconfig --region ap-northeast-2 --name $EKS_CLUSTER_NAME --kubeconfig $HOME/.kube/config --alias $EKS_CLUSTER_NAME --set-context --overwrite
 
-      # kubectl이 EKS 클러스터를 인식하도록 설정
-      - name: Update kubeconfig for EKS
-        run: aws eks update-kubeconfig --region ap-northeast-2 --name eks-project-cluster
-
-      # Apply 단계는 K8s 배포 변수(deploy_k8s)를 true로 설정하여 K8s 리소스를 배포합니다.
+      # 🌟 CRITICAL FIX 3: Kubeconfig 경로를 환경 변수에 설정하여 Terraform이 사용하도록 강제
       - name: Terraform Apply (k8s/Helm)
         working-directory: ./terraform
+        env:
+          # Helm/Kubernetes Provider가 Kubeconfig 파일을 읽도록 환경 변수 설정
+          KUBECONFIG: $HOME/.kube/config
         run: terraform apply -auto-approve -input=false -var="deploy_k8s=true"
