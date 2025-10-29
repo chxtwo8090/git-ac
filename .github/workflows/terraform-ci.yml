@@ -29,9 +29,23 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-2
 
+      - name: Restore Terraform cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            terraform/.terraform
+          key: ${{ runner.os }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tf-
+
       - name: Terraform Init
         working-directory: ./terraform
-        run: terraform init -input=false
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          terraform init -input=false
 
       - name: Terraform Validate
         working-directory: ./terraform
@@ -40,9 +54,18 @@ jobs:
       - name: Terraform Plan
         id: plan
         working-directory: ./terraform
+        env:
+          # set to 'true' to run a faster plan without refresh (use carefully)
+          FAST_PLAN: 'false'
         run: |
           set -e
-          terraform plan -no-color -out=tfplan
+          # run non-interactively and explicitly load tfvars to avoid prompting
+          # FAST_PLAN=true will add -refresh=false to speed up plan (use carefully)
+          EXTRA=""
+          if [ "${FAST_PLAN}" = "true" ]; then
+            EXTRA="-refresh=false"
+          fi
+          terraform plan $EXTRA -input=false -no-color -out=tfplan -var-file=terraform.tfvars
           terraform show -no-color tfplan > plan.txt
           echo "plan_output<<EOF" >> $GITHUB_OUTPUT
           cat plan.txt >> $GITHUB_OUTPUT
@@ -91,13 +114,27 @@ jobs:
         with:
           cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Restore Terraform cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            terraform/.terraform
+          key: ${{ runner.os }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tf-
+
       - name: Terraform Init
         working-directory: ./terraform
-        run: terraform init -input=false
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          terraform init -input=false
 
       - name: Terraform Apply (infrastructure only)
         working-directory: ./terraform
-        run: terraform apply -auto-approve -var="deploy_k8s=false"
+        run: terraform apply -input=false -auto-approve -var-file=terraform.tfvars -var="deploy_k8s=false"
 
   apply-k8s:
     name: Terraform Apply - Kubernetes (after infra)
@@ -121,9 +158,23 @@ jobs:
         with:
           cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Restore Terraform cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            terraform/.terraform
+          key: ${{ runner.os }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            ${{ runner.os }}-tf-
+
       - name: Terraform Init
         working-directory: ./terraform
-        run: terraform init -input=false
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          terraform init -input=false
 
       - name: Wait for EKS cluster to become ACTIVE
         working-directory: ./terraform
@@ -136,4 +187,4 @@ jobs:
 
       - name: Terraform Apply (k8s/Helm)
         working-directory: ./terraform
-        run: terraform apply -auto-approve -var="deploy_k8s=true"
+        run: terraform apply -input=false -auto-approve -var-file=terraform.tfvars -var="deploy_k8s=true"
