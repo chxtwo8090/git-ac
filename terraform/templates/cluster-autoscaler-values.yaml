@@ -1,0 +1,19 @@
+## cluster-autoscaler-values.yaml
+# Minimal values file used by templatefile() in cluster_autoscaler_deploy.tf
+# Template variables provided by Terraform: ${cluster_name}, ${region}
+
+# NOTE:
+# - This is a minimal, safe placeholder so the templatefile() call succeeds.
+# - Adjust keys to match the cluster-autoscaler Helm chart values if you need
+#   specific configuration (nodeSelector, extraArgs, tolerations, etc.).
+
+clusterName: "${cluster_name}"
+region: "${region}"
+
+rbac:
+  create: true
+
+# Example: uncomment and adjust if you want specific extraArgs
+# extraArgs:
+#   scale-down-delay-after-add: "10m"
+#   balance-similar-node-groups: "true"
