@@ -4,7 +4,7 @@
 # 1. Cluster Autoscaler (CA) Helm Chart 배포 (표준 Helm Provider 사용)
 # -------------------------------------------------------------------------
 resource "helm_release" "cluster_autoscaler" {
-  count = var.deploy_k8s ? 1 : 0
+  count = var.deploy_k8s ? 1 : 0 # deploy_k8s 변수가 true일 때만 실행
   name       = "cluster-autoscaler"
   repository = "https://kubernetes.github.io/autoscaler"
   chart      = "cluster-autoscaler"
@@ -21,15 +21,15 @@ resource "helm_release" "cluster_autoscaler" {
   set = [
     { name = "image.tag", value = "v1.34.0" },
     { name = "rbac.create", value = "true" },
-  { name = "aws.clusterName", value = aws_eks_cluster.eks_cluster.name },
+    { name = "aws.clusterName", value = aws_eks_cluster.eks_cluster.name },
     { name = "serviceAccount.create", value = "true" },
     { name = "serviceAccount.name", value = "cluster-autoscaler" },
     { name = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn", value = aws_iam_role.ca_role.arn } 
   ]
-
-    depends_on = [
-    aws_eks_cluster.eks_cluster,
-      data.aws_eks_cluster_auth.eks_auth,
-      aws_eks_node_group.eks_worker_group,
+  
+  # 💡 수정된 부분: 더 이상 필요 없는 data.aws_eks_cluster_auth.eks_auth 의존성 제거
+  depends_on = [
+    aws_eks_cluster.eks_cluster, # EKS 클러스터 생성이 완료될 때까지 기다립니다.
+    aws_iam_role.ca_role         # CA용 IAM 역할 생성이 완료될 때까지 기다립니다.
   ]
 }
