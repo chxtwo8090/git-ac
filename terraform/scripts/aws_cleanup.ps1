@@ -77,7 +77,7 @@ try {
     $accountId = $null
 }
 if (-not $accountId) {
-    Write-Error "AWS 계정 ID를 가져올 수 없습니다. AWS CLI가 구성되어 있고 유효한 자격(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY 또는 aws configure)이 설정되어 있는지 확인하세요. 예: `aws sts get-caller-identity`"
+    Write-Error 'AWS 계정 ID를 가져올 수 없습니다. AWS CLI가 구성되어 있고 유효한 자격(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY 또는 aws configure)이 설정되어 있는지 확인하세요. 예: aws sts get-caller-identity'
     exit 1
 }
 Write-Host "AWS Account ID: $accountId" -ForegroundColor Green
@@ -204,4 +204,5 @@ foreach ($sgName in $securityGroupNames) {
     aws ec2 delete-security-group --group-id $sgId
 }
 
-Write-Host "\n모든 지정된 리소스에 대해 처리 시도가 완료되었습니다. 에러 메시지가 있으면 확인 후 수동 조치 필요할 수 있습니다." -ForegroundColor Green
+Write-Host ""
+Write-Host '모든 지정된 리소스에 대해 처리 시도가 완료되었습니다. 에러 메시지가 있으면 확인 후 수동 조치 필요할 수 있습니다.' -ForegroundColor Green
