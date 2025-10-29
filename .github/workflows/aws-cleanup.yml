@@ -24,3 +24,5 @@ jobs:
           echo "Running AWS cleanup script in non-interactive mode (-AutoConfirm)."
           pwsh ./terraform/scripts/aws_cleanup.ps1 -AutoConfirm
         shell: pwsh
+
+        
