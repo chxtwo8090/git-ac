@@ -12,13 +12,6 @@ data "aws_eks_cluster_auth" "eks_auth" {
   ]
 }
 
-data "aws_eks_cluster" "eks_cluster" {
-  name = var.eks_cluster_name
-  # Data Source가 클러스터 생성을 기다리도록 의존성 추가
-  depends_on = [
-    aws_eks_cluster.eks_cluster
-  ]
-}
 
 # ----------------------------------------------------
 # 1. Kubernetes Provider 설정 (EKS 인증 정보 명시)
