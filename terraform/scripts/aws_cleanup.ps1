@@ -17,6 +17,16 @@ DynamoDB 테이블, 보안 그룹)를 삭제합니다. 실행 전 반드시 AWS 
 
 Set-StrictMode -Version Latest
 
+# 한글(및 유니코드) 출력 깨짐 방지 시도
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = New-Object System.Text.UTF8Encoding
+
+# AWS CLI가 설치되어 PATH에 있는지 확인
+if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+    Write-Error "AWS CLI가 시스템에 없거나 PATH에 없습니다. 먼저 'aws --version'을 실행해 설치/경로를 확인하세요."
+    exit 1
+}
+
 function Confirm([string]$message) {
     $ans = Read-Host "$message [y/N]"
     return $ans -eq 'y' -or $ans -eq 'Y'
@@ -56,9 +66,13 @@ $securityGroupNames = @(
 )
 
 # 계정 ID 조회
-$accountId = (aws sts get-caller-identity --query Account --output text) 2>$null
+try {
+    $accountId = aws sts get-caller-identity --query Account --output text 2>$null
+} catch {
+    $accountId = $null
+}
 if (-not $accountId) {
-    Write-Error "AWS 계정 ID를 가져올 수 없습니다. AWS CLI 자격을 확인하세요."
+    Write-Error "AWS 계정 ID를 가져올 수 없습니다. AWS CLI가 구성되어 있고 유효한 자격(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY 또는 aws configure)이 설정되어 있는지 확인하세요. 예: `aws sts get-caller-identity`"
     exit 1
 }
 Write-Host "AWS Account ID: $accountId" -ForegroundColor Green
