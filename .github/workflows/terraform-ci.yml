@@ -57,25 +57,54 @@ jobs:
         env:
           # set to 'true' to run a faster plan without refresh (use carefully)
           FAST_PLAN: 'false'
+        continue-on-error: true
         run: |
-          set -e
+          set -euo pipefail
           # run non-interactively and explicitly load tfvars to avoid prompting
           # FAST_PLAN=true will add -refresh=false to speed up plan (use carefully)
           EXTRA=""
           if [ "${FAST_PLAN}" = "true" ]; then
             EXTRA="-refresh=false"
           fi
-          terraform plan $EXTRA -input=false -no-color -out=tfplan -var-file=terraform.tfvars
-          terraform show -no-color tfplan > plan.txt
-          echo "plan_output<<EOF" >> $GITHUB_OUTPUT
-          cat plan.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          mkdir -p ./terraform
+          # run terraform and capture both stdout and stderr to a file while preserving exit code
+          terraform plan $EXTRA -input=false -no-color -out=tfplan -var-file=terraform.tfvars 2>&1 | tee ./terraform/plan.txt
+          echo ${PIPESTATUS[0]} > ./terraform/plan_exit_code || true
+          # if plan produced a binary plan, export a human-readable version (ignore errors)
+          terraform show -no-color tfplan > ./terraform/plan.txt || true
+          # expose plan output as a step output (first 64kB max)
+          echo "plan_output<<EOF" >> $GITHUB_OUTPUT || true
+          head -c 65000 ./terraform/plan.txt >> $GITHUB_OUTPUT || true
+          echo "EOF" >> $GITHUB_OUTPUT || true
 
       - name: Upload plan artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
           path: terraform/plan.txt
+
+      - name: Check plan result
+        if: always()
+        working-directory: ./terraform
+        run: |
+          set -e
+          EXIT_CODE=0
+          if [ -f ./plan_exit_code ]; then
+            EXIT_CODE=$(cat ./plan_exit_code || echo 1)
+          else
+            # fall back to scanning for 'Error:' in the plan output
+            if grep -q "^Error: " ./plan.txt 2>/dev/null; then
+              EXIT_CODE=1
+            fi
+          fi
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "Terraform plan failed (exit code: $EXIT_CODE). Showing last 200 lines of plan output for debugging:"
+            tail -n 200 ./plan.txt || true
+            exit $EXIT_CODE
+          else
+            echo "Terraform plan succeeded (exit code: 0)."
+          fi
 
       - name: Plan Output (Comment on PR)
         if: github.event_name == 'pull_request' && steps.plan.outputs.plan_output != ''
