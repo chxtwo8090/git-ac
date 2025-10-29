@@ -64,7 +64,7 @@ jobs:
           PLAN_OUTPUT: ${{ steps.plan.outputs.stdout }}
       # 🌟 1. AWS CLI 설치 (Kubernetes Provider와 Helm Provider의 EKS 인증에 필수) 🌟
       - name: Setup AWS CLI
-        uses: aws-actions/setup-aws-cli@v3
+        uses: aws-actions/aws-cli@v3
         
       # 🌟 2. Kubeconfig 파일 생성 및 EKS 인증 토큰 갱신 🌟
       # 이 단계가 없으면 Kubernetes/Helm Provider는 클러스터에 연결할 수 없습니다.
