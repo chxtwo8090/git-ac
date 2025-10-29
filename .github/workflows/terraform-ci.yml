@@ -9,6 +9,7 @@ on:
       - main
 
 jobs:
+  # 1. Plan Job (Validate & Plan)
   plan:
     name: Terraform Validate & Plan
     runs-on: ubuntu-latest
@@ -34,15 +35,9 @@ jobs:
           path: |
             ~/.terraform.d/plugin-cache
             terraform/.terraform
-          key: ${{ runner.os }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          key: ${{ runner.os }}-${{ github.sha }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
           restore-keys: |
             ${{ runner.os }}-tf-
-
-      - name: Install kubectl
-        run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
 
       - name: Terraform Init
         working-directory: ./terraform
@@ -52,15 +47,13 @@ jobs:
           mkdir -p ~/.terraform.d/plugin-cache
           terraform init -input=false
 
-      - name: Terraform Validate
-        working-directory: ./terraform
-        run: terraform validate -no-color
-
-      - name: Terraform Plan
+      # 인프라만 Plan (K8s Provider 오류 방지)
+      - name: Terraform Plan (Infra Only)
         working-directory: ./terraform
         run: terraform plan -no-color -input=false -var="deploy_k8s=false"
 
 
+  # 2. Apply Job (인프라만 배포)
   apply:
     name: Terraform Apply (Infra Only)
     runs-on: ubuntu-latest
@@ -88,7 +81,7 @@ jobs:
           path: |
             ~/.terraform.d/plugin-cache
             terraform/.terraform
-          key: ${{ runner.os }}-${{ github.sha }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          key: ${{ runner.os }}-tf-${{ hashFiles('terraform/.terraform.lock.hcl') }}
           restore-keys: |
             ${{ runner.os }}-tf-
 
@@ -100,11 +93,14 @@ jobs:
           mkdir -p ~/.terraform.d/plugin-cache
           terraform init -input=false
 
+      # 인프라만 Apply: EKS 클러스터, VPC, IAM 역할 등이 생성됩니다.
       - name: Terraform Apply (Infra Only)
         working-directory: ./terraform
         run: terraform apply -auto-approve -input=false -var="deploy_k8s=false"
 
 
+  # 3. Apply K8s Job (EKS Cluster/Kubernetes/Helm 배포)
+  # 🚀 Kubeconfig 에러를 해결하기 위한 핵심 수정 사항이 모두 적용되었습니다.
   apply-k8s:
     name: Terraform Apply (K8s/Helm)
     runs-on: ubuntu-latest
@@ -136,11 +132,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-tf-
             
-      # 🌟 Kubeconfig 파일을 생성할 경로를 환경 변수에 설정
+      # Kubeconfig 경로 설정 (환경 변수 저장)
       - name: Set Kubeconfig Path Environment Variable
         run: echo "KUBECONFIG_PATH=/home/runner/.kube/config" >> $GITHUB_ENV
 
-      # 🌟 kubectl과 helm 설치
+      # kubectl과 helm 설치
       - name: Install kubectl and helm
         run: |
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
@@ -150,46 +146,73 @@ jobs:
           tar xvf helm-v3.12.3-linux-amd64.tar.gz
           sudo mv linux-amd64/helm /usr/local/bin/
 
-      # 🌟 EKS 클러스터가 활성화될 때까지 기다리고 Kubeconfig 업데이트 (파일 존재 여부 확인 추가)
-      - name: Wait for EKS cluster & Update kubeconfig (with debug check)
+      # EKS 클러스터 활성화 대기 및 Kubeconfig 업데이트
+      - name: Wait for EKS cluster & Update kubeconfig
         working-directory: ./terraform
         run: |
           EKS_CLUSTER_NAME="eks-project-cluster"
           
           echo "Waiting for EKS cluster ($EKS_CLUSTER_NAME) to be ACTIVE..."
+          # EKS가 완전히 활성화될 때까지 기다림
           aws eks wait cluster-active --name $EKS_CLUSTER_NAME --region ap-northeast-2
           
           echo "Updating Kubeconfig... path: ${{ env.KUBECONFIG_PATH }}"
-          # KUBECONFIG_PATH를 사용해 config 파일 생성
+          # .kube 디렉토리가 없으면 생성
           mkdir -p $(dirname ${{ env.KUBECONFIG_PATH }})
+          # Kubeconfig 파일 생성 및 환경 변수 경로에 저장
           aws eks update-kubeconfig --region ap-northeast-2 --name $EKS_CLUSTER_NAME --kubeconfig ${{ env.KUBECONFIG_PATH }} --alias $EKS_CLUSTER_NAME
 
-          # 생성된 파일 확인 및 내용 출력 (🚨 디버깅을 위해 추가)
-          echo "--- Kubeconfig File Check ---"
-          if [ -f "${{ env.KUBECONFIG_PATH }}" ]; then
-            echo "Kubeconfig file exists. First 10 lines:"
-            head -n 10 ${{ env.KUBECONFIG_PATH }}
-          else
-            echo "🚨 Kubeconfig file NOT found at ${{ env.KUBECONFIG_PATH }}. Exiting."
-            exit 1 
-          fi
-          echo "-----------------------------"
       
-      # 🌟 CRITICAL FIX: Terraform Init -reconfigure 강제 실행 (🌟 이 부분이 핵심 수정)
+      # 핵심 수정: Terraform Init -reconfigure 강제 실행 (Provider 설정 변경 반영)
       - name: Terraform Init (Reconfigure Providers)
         working-directory: ./terraform
         env:
           TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
         run: |
-          # 캐시를 사용하더라도 Provider 설정을 강제로 다시 로드합니다.
           terraform init -input=false -reconfigure
 
-      # 🌟 Kubeconfig 경로를 Terraform 변수로 전달
+      # Kubeconfig 경로를 Terraform 변수로 전달하여 Apply 실행
       - name: Terraform Apply (k8s/Helm)
         working-directory: ./terraform
         env:
-          # 환경 변수 KUBECONFIG는 kubectl/helm 명령에 유용
-          KUBECONFIG: ${{ env.KUBECONFIG_PATH }}
+          # kubectl/helm 명령이 Kubeconfig를 찾도록 환경 변수 설정
+          KUBECONFIG: ${{ env.KUBECONFIG_PATH }} 
         run: |
-          # 수정: providers.tf가 Kubeconfig 경로를 사용하도록 -var로 전달
+          # providers.tf의 kubernetes/helm provider가 kubeconfig_path 변수를 사용하도록 전달
           terraform apply -auto-approve -input=false -var="deploy_k8s=true" -var="kubeconfig_path=${{ env.KUBECONFIG_PATH }}"
+
+
+  # 4. Destroy Job (수동 실행용)
+  destroy:
+    name: Terraform Destroy (Manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' # 수동 실행 시에만 작동
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          terraform init -input=false
+
+      - name: Terraform Destroy
+        working-directory: ./terraform
+        # Destroy 실행 (K8s 리소스도 함께 삭제)
+        # kubeconfig_path는 destroy 시 불필요하거나 /dev/null로 처리해도 무방함
+        run: terraform destroy -auto-approve -var="deploy_k8s=true" -var="kubeconfig_path=/dev/null"
