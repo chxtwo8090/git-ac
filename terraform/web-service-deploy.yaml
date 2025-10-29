@@ -1,0 +1,121 @@
+# 1. Flask 애플리케이션 Deployment 및 Service
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app-deployment
+  labels:
+    app: flask-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flask-app
+  template:
+    metadata:
+      labels:
+        app: flask-app
+    spec:
+      containers:
+      - name: flask-container
+        # Flask ECR 이미지 주소 (찬규님께서 사용하시는 주소)
+        image: 798874239435.dkr.ecr.ap-northeast-2.amazonaws.com/my-flask-app:latest
+        ports:
+        - containerPort: 5000 # Flask 앱 포트
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-app-service
+spec:
+  selector:
+    app: flask-app
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: NodePort # Ingress Controller가 참조합니다
+---
+
+# 2. Apache 웹 페이지 Deployment 및 Service
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apache-web-deployment
+  labels:
+    app: apache-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: apache-web
+  template:
+    metadata:
+      labels:
+        app: apache-web
+    spec:
+      containers:
+      - name: apache-container
+        # Apache ECR 이미지 주소 (찬규님께서 사용하시는 주소)
+        image: 798874239435.dkr.ecr.ap-northeast-2.amazonaws.com/my-apache-web:latest
+        ports:
+        - containerPort: 80 # Apache 기본 포트
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apache-web-service
+spec:
+  selector:
+    app: apache-web
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: NodePort
+---
+
+# 3. 통합 Ingress (ALB 생성 및 라우팅)
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: combined-web-ingress
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    
+    # 🚀 Apache 기본 헬스 체크 경로 (주석 해제 및 활성화)
+    alb.ingress.kubernetes.io/healthcheck-path: /index.html 
+    
+    # 🚀 Flask 앱의 헬스 체크 경로 (5000번 포트 Healthy 성공의 핵심, 주석 해제 및 활성화)
+    alb.ingress.kubernetes.io/healthcheck-path.flask-app-service: /api/status
+    alb.ingress.kubernetes.io/healthcheck-protocol.flask-app-service: HTTP
+    alb.ingress.kubernetes.io/success-codes.flask-app-service: 200
+    
+    # Public Subnet ID 
+    alb.ingress.kubernetes.io/subnets: "subnet-046bfa551becca7d4, subnet-0d89a31cc28920186"
+    
+
+spec:
+  rules:
+  - http:
+      paths:
+      # /api 경로 트래픽은 Flask Service (5000번)로 라우팅
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: flask-app-service
+            port:
+              number: 5000
+      # 나머지 모든 경로 (Root /) 트래픽은 Apache Service (80번)로 라우팅
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: apache-web-service
+            port:
+              number: 80

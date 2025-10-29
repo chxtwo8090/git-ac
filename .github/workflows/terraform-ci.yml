@@ -1,0 +1,71 @@
+name: 'Terraform CI/CD' # 이름 변경 (CI에서 CI/CD로)
+
+on:
+  push:
+    branches:
+      - main  # main 브랜치에 푸시할 때마다 실행
+  pull_request:
+    branches:
+      - main  # main 브랜치로 Pull Request가 열릴 때 실행
+
+jobs:
+  terraform_validate_plan_apply: # Job 이름 변경
+    name: 'Terraform Validate, Plan & Apply'
+    runs-on: ubuntu-latest
+
+    env:
+      # AWS 인증 정보 환경 변수 설정
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ap-northeast-2 # 사용하는 AWS 리전에 맞게 수정하세요!
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Terraform 명령어를 실행할 디렉토리로 이동
+      - name: Change Directory to Terraform
+        run: cd terraform
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ./terraform
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ./terraform  # 코드 유효성 검사 실행
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color # Plan 결과를 저장하지 않고 출력만 합니다.
+        working-directory: ./terraform
+        continue-on-error: true
+
+      - name: Plan Output (Comment on PR)
+        # Plan이 성공했고 Pull Request 이벤트일 때만 실행 (404 오류 방지)
+        if: steps.plan.outcome == 'success' && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Plan 결과를 Pull Request 코멘트로 남김
+            const output = `#### Terraform Plan 🔎\n\n\`\`\`terraform\n${process.env.PLAN_OUTPUT}\n\`\`\``
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+        env:
+          PLAN_OUTPUT: ${{ steps.plan.outputs.stdout }}
+
+      - name: Terraform Apply # 🚀 새로 추가된 CD(배포) 단계
+        # 모든 CI 단계 (Validate, Plan)가 성공했을 때만 Apply 실행
+        if: success()
+        run: terraform apply -auto-approve 
+        working-directory: ./terraform
+        
