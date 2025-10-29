@@ -27,6 +27,9 @@ resource "helm_release" "cluster_autoscaler" {
     { name = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn", value = aws_iam_role.ca_role.arn } 
   ]
   
+  wait    = true  # Pod가 Ready가 될 때까지 기다리도록 설정하는 것이 좋습니다.
+  timeout = 600   # 대기 시간을 10분으로 설정
+  
   # 💡 수정된 부분: 더 이상 필요 없는 data.aws_eks_cluster_auth.eks_auth 의존성 제거
   depends_on = [
     aws_eks_cluster.eks_cluster, # EKS 클러스터 생성이 완료될 때까지 기다립니다.

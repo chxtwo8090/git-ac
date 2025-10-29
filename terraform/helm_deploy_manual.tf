@@ -21,6 +21,7 @@ resource "helm_release" "alb_controller" {
   ]
   
   wait = true
+  timeout = 600
 
   depends_on = [
     helm_release.cluster_autoscaler[0]
