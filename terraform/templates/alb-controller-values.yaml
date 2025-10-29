@@ -1,0 +1,10 @@
+# templates/alb-controller-values.yaml
+
+# ------------------------------------------------------------------
+# ALB Controller Helm Chart Values
+# ------------------------------------------------------------------
+
+# 💡 .controller.args 에 전달되는 인자를 values를 통해 명시합니다.
+clusterName: "${cluster_name}"
+awsRegion: "${region}"
+awsVpcID: "${vpc_id}"
