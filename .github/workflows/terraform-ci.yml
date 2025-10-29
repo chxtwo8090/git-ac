@@ -3,14 +3,14 @@ name: 'Terraform CI/CD' # 이름 변경 (CI에서 CI/CD로)
 on:
   push:
     branches:
-      - main  # main 브랜치에 푸시할 때마다 실행 (apply는 main에서만)
+      - main
   pull_request:
     branches:
-      - main  # main 브랜치로 Pull Request가 열릴 때 실행 (plan/validate)
+      - main
 
 jobs:
   plan:
-    name: 'Terraform Validate & Plan'
+    name: Terraform Validate & Plan
     runs-on: ubuntu-latest
 
     steps:
@@ -40,12 +40,10 @@ jobs:
       - name: Terraform Plan
         id: plan
         working-directory: ./terraform
-        # Plan을 파일로 저장하고 plan.txt로 변환하여 step output으로 노출
         run: |
           set -e
           terraform plan -no-color -out=tfplan
           terraform show -no-color tfplan > plan.txt
-          # GITHUB_OUTPUT을 사용해 멀티라인 출력을 step output으로 설정
           echo "plan_output<<EOF" >> $GITHUB_OUTPUT
           cat plan.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -61,7 +59,7 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            const output = `#### Terraform Plan 🔎\n\n\`\`\`terraform\n${process.env.PLAN_OUTPUT}\n\`\`\`\n\n(Plan file uploaded as artifact: \'terraform-plan\')`
+            const output = `#### Terraform Plan 🔎\n\n\`\`\`terraform\n${process.env.PLAN_OUTPUT}\n\`\`\`\n\n(Plan file uploaded as artifact: 'terraform-plan')`
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -72,12 +70,7 @@ jobs:
           PLAN_OUTPUT: ${{ steps.plan.outputs.plan_output }}
 
   apply:
-    name: 'Terraform Apply (only main push)'
-    runs-on: ubuntu-latest
-    needs: plan
-    # Apply는 오직 main 브랜치에 직접 푸시될 때만 실행
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
+    name: Terraform Apply (only main push)
     runs-on: ubuntu-latest
     needs: plan
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -104,11 +97,10 @@ jobs:
 
       - name: Terraform Apply (infrastructure only)
         working-directory: ./terraform
-        # deploy_k8s=false로 k8s/Helm 리소스는 건너뜁니다.
         run: terraform apply -auto-approve -var="deploy_k8s=false"
 
   apply-k8s:
-    name: 'Terraform Apply - Kubernetes (after infra)'
+    name: Terraform Apply - Kubernetes (after infra)
     runs-on: ubuntu-latest
     needs: apply
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -145,4 +137,3 @@ jobs:
       - name: Terraform Apply (k8s/Helm)
         working-directory: ./terraform
         run: terraform apply -auto-approve -var="deploy_k8s=true"
-        
