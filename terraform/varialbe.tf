@@ -5,16 +5,22 @@
 variable "vpc_id" {
   description = "EC2 인스턴스와 보안 그룹을 생성할 VPC의 ID입니다."
   type        = string
+  # Make optional: when empty, configuration can use the VPC created in this repo (aws_vpc.eks_vpc)
+  default     = ""
 }
 
 variable "subnet_id" {
   description = "EC2 인스턴스를 배포할 프라이빗 서브넷의 ID입니다."
   type        = string
+  # Optional: leave empty to use subnets created by this Terraform configuration
+  default     = ""
 }
 
 variable "key_name" {
   description = "EC2 인스턴스에 접속하기 위해 사용할 기존 SSH 키 페어의 이름입니다."
   type        = string
+  # Optional: provide an existing key name if you want EC2 access; otherwise leave empty
+  default     = ""
 }
 
 variable "region" {
