@@ -11,7 +11,7 @@ terraform {
     encrypt = true
 
     # Uncomment the following line after you create the DynamoDB table for locking.
-    # dynamodb_table = "terraform-state-lock"
+     dynamodb_table = "terraform-state-lock"
   }
 }
 

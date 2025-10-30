@@ -8,3 +8,11 @@
 clusterName: "${cluster_name}"
 awsRegion: "${region}"
 awsVpcID: "${vpc_id}"
+
+# 🌟 추가/수정: Service Account 섹션을 추가하고 Annotation을 정의
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations:
+    # 템플릿 변수(alb_role_arn)를 사용하여 ARN 값을 주입
+    eks.amazonaws.com/role-arn: "${alb_role_arn}"

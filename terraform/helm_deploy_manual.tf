@@ -17,6 +17,7 @@ resource "helm_release" "alb_controller" {
       cluster_name = aws_eks_cluster.eks_cluster.name
       region       = var.region
       vpc_id       = aws_vpc.eks_vpc.id
+      alb_role_arn = aws_iam_role.alb_ingress_role.arn
     })
   ]
   # -----------------------------------------------------------------------------
